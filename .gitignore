@@ -1,4 +1,5 @@
 .DS_Store
+config.prod.env
 
 backend/data/
 backend/config/local.env

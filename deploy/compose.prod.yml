@@ -1,0 +1,37 @@
+services:
+  imagen-backend:
+    build:
+      context: ../backend
+      dockerfile: Containerfile
+    image: imagen-backend:local
+    container_name: imagen-backend
+    restart: unless-stopped
+    env_file:
+      - "${IMAGEGEN_CONFIG_FILE:?Set IMAGEGEN_CONFIG_FILE to the absolute path of config.prod.env}"
+    environment:
+      GIN_MODE: release
+      TZ: Asia/Shanghai
+    ports:
+      - "${IMAGEGEN_BACKEND_BIND:-127.0.0.1}:${IMAGEGEN_BACKEND_PORT:-8092}:8092"
+    volumes:
+      - type: bind
+        source: "${IMAGEGEN_DATA_DIR:?Set IMAGEGEN_DATA_DIR to a persistent data directory}"
+        target: /var/lib/imagen
+        bind:
+          create_host_path: true
+      - type: bind
+        source: "${IMAGEGEN_LOG_DIR:?Set IMAGEGEN_LOG_DIR to a persistent log directory}"
+        target: /var/log/imagen
+        bind:
+          create_host_path: true
+    networks:
+      - kageos-hub-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8092/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  kageos-hub-net:
+    external: true

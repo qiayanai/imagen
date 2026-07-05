@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +22,13 @@ import (
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	cfg := config.FromEnv()
+	logFile, err := setupLogging(cfg.LogFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
 	db, err := repository.Open(cfg.DatabaseDSN, cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
@@ -59,4 +68,22 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func setupLogging(path string) (*os.File, error) {
+	if path == "" {
+		return nil, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	writer := io.MultiWriter(os.Stdout, file)
+	log.SetOutput(writer)
+	gin.DefaultWriter = writer
+	gin.DefaultErrorWriter = writer
+	return file, nil
 }

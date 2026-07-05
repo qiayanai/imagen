@@ -19,6 +19,7 @@ type Config struct {
 	SessionSecret       string
 	SessionCookieDomain string
 	SecretKey           string
+	LogFile             string
 	StorageDir          string
 	StorageProvider     string
 	EngineHomeDir       string
@@ -56,6 +57,7 @@ func FromEnv() Config {
 		SessionSecret:       env("IMAGEGEN_SESSION_SECRET", env("IMAGEGEN_ADMIN_TOKEN", "dev-admin-token")),
 		SessionCookieDomain: env("IMAGEGEN_SESSION_COOKIE_DOMAIN", ""),
 		SecretKey:           env("IMAGEGEN_SECRET_KEY", env("IMAGEGEN_SESSION_SECRET", env("IMAGEGEN_ADMIN_TOKEN", "dev-admin-token"))),
+		LogFile:             env("IMAGEGEN_LOG_FILE", ""),
 		StorageDir:          env("IMAGEGEN_STORAGE_DIR", "data/storage"),
 		StorageProvider:     strings.ToLower(env("IMAGEGEN_STORAGE_PROVIDER", "local")),
 		EngineHomeDir:       env("IMAGEGEN_ENGINE_HOME_DIR", "data/engines"),

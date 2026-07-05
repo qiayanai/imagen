@@ -2,6 +2,8 @@
 
 后端需要部署在普通服务器上，因为它要执行配置好的生图 Runner。前端可以单独放在 Cloudflare Pages。
 
+> 推荐生产环境使用仓库根目录的 `deploy/prod.sh` 和 `deploy/compose.prod.yml`。本目录保留的是不使用容器时的 systemd / Nginx 参考。
+
 ## 构建
 
 ```bash

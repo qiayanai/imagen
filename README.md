@@ -6,7 +6,8 @@ Imagen 是一个前后端分离的批量生图服务。前端可以部署到 Clo
 
 - `backend`: Go API 服务，负责 API 密钥、额度、任务队列、引擎账号、图片生成和存储。
 - `web`: Next.js 静态前端，包含客户端页面和管理后台，视觉风格参考 KageOS Hub。
-- `deploy/backend`: 后端部署参考，包括 systemd 和 Nginx 配置样例。
+- `deploy`: 后端生产部署脚本和 Podman compose 配置。
+- `deploy/backend`: 旧版 systemd / Nginx 参考配置。
 
 ## 本地启动
 
@@ -33,7 +34,69 @@ npm run dev
 - 客户端：`http://127.0.0.1:4102/client`
 - 管理后台：`http://127.0.0.1:4102/admin`
 
-## 部署方式
+## 生产部署
+
+后端推荐参考 Hub 的方式部署：服务器上保留仓库，更新时 `git pull`，再执行 `deploy/prod.sh up` 构建并重启容器。
+
+首次初始化配置：
+
+```bash
+git clone git@github.com:qiayanai/imagen.git
+cd imagen
+deploy/prod.sh init-config
+```
+
+编辑生成的生产配置，默认路径：
+
+```text
+$HOME/services/imagen/config/config.prod.env
+```
+
+关键项通常是：
+
+```env
+IMAGEGEN_DATABASE_DSN=postgres://imagen:<password>@kageos-hub-postgres:5432/imagen?sslmode=disable
+IMAGEGEN_PUBLIC_BASE_URL=https://imagen-api.example.com
+IMAGEGEN_WEB_BASE_URL=https://imagen.example.com
+IMAGEGEN_CORS_ORIGINS=https://imagen.example.com
+IMAGEGEN_SESSION_COOKIE_DOMAIN=.example.com
+IMAGEGEN_STORAGE_PROVIDER=r2
+IMAGEGEN_STORAGE_DIR=/var/lib/imagen/storage
+IMAGEGEN_ENGINE_HOME_DIR=/var/lib/imagen/engines
+IMAGEGEN_WORKDIR=/var/lib/imagen/work
+IMAGEGEN_RUNNER_PATH=/app/bin/imagen-runner
+IMAGEGEN_LOG_FILE=/var/log/imagen/imagen-api.log
+GOOGLE_REDIRECT_URL=https://imagen-api.example.com/admin/auth/google/callback
+```
+
+启动或更新：
+
+```bash
+git pull
+deploy/prod.sh up
+```
+
+常用命令：
+
+```bash
+deploy/prod.sh logs          # 追踪落盘应用日志
+deploy/prod.sh compose-logs  # 追踪容器 stdout/stderr
+deploy/prod.sh ps
+deploy/prod.sh restart
+deploy/prod.sh config
+deploy/prod.sh down
+```
+
+默认持久化目录：
+
+```text
+$HOME/services/imagen/data  -> /var/lib/imagen
+$HOME/services/imagen/logs  -> /var/log/imagen
+```
+
+Imagen 容器会加入外部 Podman 网络 `kageos-hub-net`，因此可以用 `kageos-hub-postgres:5432` 访问现有 PG 实例。
+
+## 前端部署
 
 - `web` 部署到 Cloudflare Pages。
 - `backend` 部署到韩国服务器，由它负责执行生图 Runner。
@@ -47,17 +110,7 @@ https://imagen-api.example.com  -> Korea server backend
 https://cdn.imagen.chat         -> Cloudflare R2 public bucket/domain
 ```
 
-生产环境后端至少需要配置：
-
-```env
-IMAGEGEN_PUBLIC_BASE_URL=https://imagen-api.example.com
-IMAGEGEN_WEB_BASE_URL=https://imagen.example.com
-IMAGEGEN_CORS_ORIGINS=https://imagen.example.com
-IMAGEGEN_SESSION_COOKIE_DOMAIN=.example.com
-GOOGLE_REDIRECT_URL=https://imagen-api.example.com/admin/auth/google/callback
-```
-
-不要提交 `backend/config/local.env`、SQLite 数据库文件或生成图片目录。
+不要提交 `backend/config/local.env`、`config.prod.env`、SQLite 数据库文件或生成图片目录。
 
 ## 验证
 

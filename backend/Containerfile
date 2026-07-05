@@ -1,0 +1,30 @@
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /src
+
+RUN apk add --no-cache build-base ca-certificates git sqlite-dev
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/imagen-api ./cmd/imagegenapi
+
+FROM alpine:3.22
+
+WORKDIR /app
+
+ARG CODEX_NPM_PACKAGE=@openai/codex
+
+RUN apk add --no-cache ca-certificates nodejs npm sqlite-libs tzdata \
+  && npm install -g "$CODEX_NPM_PACKAGE" \
+  && mkdir -p /app/bin /var/lib/imagen /var/log/imagen
+
+COPY --from=builder /out/imagen-api /app/imagen-api
+COPY bin/imagen-runner /app/bin/imagen-runner
+
+RUN chmod 0755 /app/imagen-api /app/bin/imagen-runner
+
+EXPOSE 8092
+
+ENTRYPOINT ["/app/imagen-api"]
