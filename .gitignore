@@ -1,0 +1,12 @@
+.DS_Store
+
+backend/data/
+backend/config/local.env
+backend/*.sqlite
+backend/*.sqlite-shm
+backend/*.sqlite-wal
+
+web/.next/
+web/out/
+web/node_modules/
+web/.env.local

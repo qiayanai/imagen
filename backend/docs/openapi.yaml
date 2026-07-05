@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: Imagen Backend
+  version: 0.3.0
+servers:
+  - url: http://127.0.0.1:8092
+security:
+  - ApiKeyAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+
+  /v1/tasks:
+    post:
+      summary: Create an image generation task
+      responses:
+        "202":
+          description: Accepted
+    get:
+      summary: List tasks for the current API key
+      responses:
+        "200":
+          description: OK
+
+  /v1/tasks/{id}:
+    get:
+      summary: Get task status and output URLs
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  /v1/batches:
+    post:
+      summary: Create a batch of image generation tasks
+      responses:
+        "202":
+          description: Accepted
+
+  /v1/batches/{id}:
+    get:
+      summary: Get batch status and task statuses
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  /v1/quota:
+    get:
+      summary: Get current API key quota
+      responses:
+        "200":
+          description: OK
+
+  /admin/auth/google:
+    get:
+      security: []
+      summary: Start Google OAuth login
+      parameters:
+        - name: return_to
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to Google
+
+  /admin/auth/google/callback:
+    get:
+      security: []
+      summary: Complete Google OAuth login
+      responses:
+        "302":
+          description: Redirect to web admin after setting session cookie
+
+  /v1/admin/me:
+    get:
+      security: []
+      summary: Inspect current admin session
+      responses:
+        "200":
+          description: Session state
+
+  /v1/admin/logout:
+    post:
+      security:
+        - AdminSessionAuth: []
+      summary: Clear admin session cookie
+      responses:
+        "200":
+          description: Logged out
+
+  /v1/admin/overview:
+    get:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Admin overview metrics
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/settings:
+    get:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Masked runtime settings for the admin UI
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/api-keys:
+    post:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Create API key
+      responses:
+        "201":
+          description: Created
+    get:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: List API keys
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/api-keys/{id}:
+    patch:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Update API key
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/provider-accounts:
+    post:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Create provider account
+      responses:
+        "201":
+          description: Created
+    get:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: List provider accounts
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/provider-accounts/{id}:
+    patch:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: Update provider account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  /v1/admin/tasks:
+    get:
+      security:
+        - AdminSessionAuth: []
+        - AdminTokenAuth: []
+      summary: List all tasks for admin
+      responses:
+        "200":
+          description: OK
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: Customer API key returned by `/v1/admin/api-keys`.
+    AdminTokenAuth:
+      type: http
+      scheme: bearer
+      description: Server-side maintenance token from `IMAGEGEN_ADMIN_TOKEN`.
+    AdminSessionAuth:
+      type: apiKey
+      in: cookie
+      name: imagegen_admin_session
+      description: Signed Google OAuth admin session cookie.

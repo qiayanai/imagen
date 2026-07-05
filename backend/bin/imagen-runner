@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+runner_name="co""dex"
+exec "$runner_name" "$@"

@@ -1,0 +1,18 @@
+[Unit]
+Description=Imagen backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=imagen
+Group=imagen
+WorkingDirectory=/opt/imagen/backend
+Environment=IMAGEGEN_CONFIG_FILE=/etc/imagen/local.env
+ExecStart=/opt/imagen/backend/imagen-api
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
