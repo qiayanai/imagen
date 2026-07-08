@@ -19,8 +19,8 @@ paths:
     post:
       summary: Create an image generation task
       responses:
-        "202":
-          description: Accepted
+        "200":
+          description: OK
     get:
       summary: List tasks for the current API key
       responses:
@@ -44,8 +44,8 @@ paths:
     post:
       summary: Create a batch of image generation tasks
       responses:
-        "202":
-          description: Accepted
+        "200":
+          description: OK
 
   /v1/batches/{id}:
     get:

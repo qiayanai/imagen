@@ -123,7 +123,7 @@ func (a *API) createTask(c *gin.Context) {
 		return
 	}
 	quota, _ := a.app.Quota(c.Request.Context(), key.ID)
-	c.JSON(http.StatusAccepted, gin.H{"task": taskDTO(task), "quota": quota})
+	c.JSON(http.StatusOK, gin.H{"task": taskDTO(task), "quota": quota})
 }
 
 func (a *API) createBatch(c *gin.Context) {
@@ -143,7 +143,7 @@ func (a *API) createBatch(c *gin.Context) {
 	for _, task := range tasks {
 		out = append(out, taskDTO(task))
 	}
-	c.JSON(http.StatusAccepted, gin.H{"batch": batchDTO(batch), "tasks": out, "quota": quota})
+	c.JSON(http.StatusOK, gin.H{"batch": batchDTO(batch), "tasks": out, "quota": quota})
 }
 
 func (a *API) getTask(c *gin.Context) {
@@ -451,7 +451,7 @@ func (a *API) clientCreateTask(c *gin.Context) {
 		return
 	}
 	quota, _ := a.app.Quota(c.Request.Context(), key.ID)
-	c.JSON(http.StatusAccepted, gin.H{"task": taskDTO(task), "quota": quota})
+	c.JSON(http.StatusOK, gin.H{"task": taskDTO(task), "quota": quota})
 }
 
 func (a *API) clientGetTask(c *gin.Context) {
