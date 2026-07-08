@@ -168,8 +168,12 @@ func NewR2(cfg R2Config) (*R2, error) {
 	if strings.TrimSpace(cfg.Bucket) == "" {
 		return nil, errors.New("R2_BUCKET is required")
 	}
-	if strings.TrimSpace(cfg.PublicBaseURL) == "" {
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
+	if publicBaseURL == "" {
 		return nil, errors.New("R2_PUBLIC_BASE_URL is required")
+	}
+	if !isAbsoluteHTTPURL(publicBaseURL) {
+		return nil, errors.New("R2_PUBLIC_BASE_URL must be an absolute http(s) URL, for example https://cdn.example.com")
 	}
 	endpoint := "https://" + strings.TrimSpace(cfg.AccountID) + ".r2.cloudflarestorage.com"
 	awsCfg := aws.Config{
@@ -183,7 +187,7 @@ func NewR2(cfg R2Config) (*R2, error) {
 	return &R2{
 		client:        client,
 		bucket:        strings.TrimSpace(cfg.Bucket),
-		publicBaseURL: strings.TrimRight(cfg.PublicBaseURL, "/"),
+		publicBaseURL: publicBaseURL,
 		keyPrefix:     strings.Trim(strings.TrimSpace(cfg.KeyPrefix), "/"),
 	}, nil
 }
@@ -333,6 +337,14 @@ func cleanObjectKey(key string) (string, error) {
 		return "", errors.New("invalid object key")
 	}
 	return clean, nil
+}
+
+func isAbsoluteHTTPURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	return parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 func escapePath(path string) string {
