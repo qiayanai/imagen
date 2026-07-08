@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -164,6 +165,9 @@ type LibraryAssetFilter struct {
 }
 
 func New(repo *repository.Store, cfg config.Config) (*App, error) {
+	if err := ensureRuntimeDirs(cfg); err != nil {
+		return nil, err
+	}
 	store, err := storage.New(cfg)
 	if err != nil {
 		return nil, err
@@ -175,6 +179,28 @@ func New(repo *repository.Store, cfg config.Config) (*App, error) {
 		Secret: secret.NewEnvBox(cfg.SecretKey),
 		Store:  store,
 	}, nil
+}
+
+func ensureRuntimeDirs(cfg config.Config) error {
+	dirs := []struct {
+		label string
+		path  string
+		perm  os.FileMode
+	}{
+		{label: "storage dir", path: cfg.StorageDir, perm: 0o755},
+		{label: "engine home dir", path: cfg.EngineHomeDir, perm: 0o700},
+		{label: "work dir", path: cfg.WorkDir, perm: 0o755},
+	}
+	for _, dir := range dirs {
+		path := strings.TrimSpace(dir.path)
+		if path == "" {
+			continue
+		}
+		if err := os.MkdirAll(path, dir.perm); err != nil {
+			return fmt.Errorf("create %s %q: %w", dir.label, path, err)
+		}
+	}
+	return nil
 }
 
 func (a *App) EnsureDefaultProviderAccount(ctx context.Context) error {

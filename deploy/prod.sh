@@ -84,7 +84,8 @@ init_config() {
     exit 1
   fi
 
-  mkdir -p "$(dirname "$CONFIG_FILE")" "$DATA_DIR" "$LOG_DIR"
+  mkdir -p "$(dirname "$CONFIG_FILE")" "$DATA_DIR" "$DATA_DIR/storage" "$DATA_DIR/engines" "$DATA_DIR/work" "$LOG_DIR"
+  chmod 700 "$DATA_DIR/engines" || true
   umask 077
   cp "$ROOT_DIR/config.prod.env.example" "$CONFIG_FILE"
   echo "Created production config: $CONFIG_FILE"
@@ -93,7 +94,8 @@ init_config() {
 
 prepare_dirs() {
   require_paths
-  mkdir -p "$DATA_DIR" "$LOG_DIR"
+  mkdir -p "$DATA_DIR" "$DATA_DIR/storage" "$DATA_DIR/engines" "$DATA_DIR/work" "$LOG_DIR"
+  chmod 700 "$DATA_DIR/engines" || true
 }
 
 configured_log_file() {
