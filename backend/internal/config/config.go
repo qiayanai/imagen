@@ -46,13 +46,15 @@ type Config struct {
 
 func FromEnv() Config {
 	loadEnvFile(firstNonEmpty(os.Getenv("IMAGEGEN_CONFIG_FILE"), "config/local.env"))
+	publicBaseURL := strings.TrimRight(env("IMAGEGEN_PUBLIC_BASE_URL", "http://127.0.0.1:8092"), "/")
+	webBaseURL := strings.TrimRight(env("IMAGEGEN_WEB_BASE_URL", "http://127.0.0.1:4102"), "/")
 	return Config{
 		Addr:                env("IMAGEGEN_ADDR", "127.0.0.1:8092"),
 		DatabaseDSN:         env("IMAGEGEN_DATABASE_DSN", ""),
 		DBPath:              env("IMAGEGEN_DB", "data/imagegen.sqlite"),
-		PublicBaseURL:       strings.TrimRight(env("IMAGEGEN_PUBLIC_BASE_URL", "http://127.0.0.1:8092"), "/"),
-		WebBaseURL:          strings.TrimRight(env("IMAGEGEN_WEB_BASE_URL", "http://127.0.0.1:4102"), "/"),
-		CORSAllowedOrigins:  csvEnvDefault("IMAGEGEN_CORS_ORIGINS", env("IMAGEGEN_WEB_BASE_URL", "http://127.0.0.1:4102")),
+		PublicBaseURL:       publicBaseURL,
+		WebBaseURL:          webBaseURL,
+		CORSAllowedOrigins:  corsAllowedOrigins(webBaseURL),
 		AdminToken:          env("IMAGEGEN_ADMIN_TOKEN", "dev-admin-token"),
 		SessionSecret:       env("IMAGEGEN_SESSION_SECRET", env("IMAGEGEN_ADMIN_TOKEN", "dev-admin-token")),
 		SessionCookieDomain: env("IMAGEGEN_SESSION_COOKIE_DOMAIN", ""),
@@ -132,15 +134,12 @@ func csvEnv(key string) []string {
 	return splitCSV(raw)
 }
 
-func csvEnvDefault(key, fallback string) []string {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		raw = fallback
+func corsAllowedOrigins(webBaseURL string) []string {
+	origins := csvEnv("IMAGEGEN_CORS_ORIGINS")
+	if strings.TrimSpace(webBaseURL) != "" {
+		origins = append(origins, webBaseURL)
 	}
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	return splitCSV(raw)
+	return uniqueList(origins)
 }
 
 func splitCSV(raw string) []string {
@@ -151,6 +150,24 @@ func splitCSV(raw string) []string {
 		if item != "" {
 			out = append(out, item)
 		}
+	}
+	return out
+}
+
+func uniqueList(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		item := strings.TrimRight(strings.TrimSpace(value), "/")
+		if item == "" {
+			continue
+		}
+		key := strings.ToLower(item)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
 	}
 	return out
 }
