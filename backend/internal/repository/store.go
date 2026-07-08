@@ -24,8 +24,24 @@ type Overview struct {
 	TaskCounts        map[string]int64
 	TotalTasks        int64
 	TotalOutputImages int64
+	Customers         int64
 	APIKeys           int64
+	LibraryAssets     int64
 	ProviderAccounts  int64
+}
+
+type LibraryAssetFilter struct {
+	Status   string
+	Category string
+	Query    string
+	Featured *bool
+	Limit    int
+	Offset   int
+}
+
+type CategoryCount struct {
+	Category string
+	Count    int64
 }
 
 func NewStore(db *gorm.DB) *Store {
@@ -38,6 +54,79 @@ func (s *Store) ProviderAccountCount(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+func (s *Store) CreateCustomer(ctx context.Context, customer domain.Customer) error {
+	return s.db.WithContext(ctx).Create(&customer).Error
+}
+
+func (s *Store) ListCustomers(ctx context.Context) ([]domain.Customer, error) {
+	var customers []domain.Customer
+	err := s.db.WithContext(ctx).Order("created_at desc").Find(&customers).Error
+	return customers, err
+}
+
+func (s *Store) GetCustomer(ctx context.Context, id string) (domain.Customer, error) {
+	var customer domain.Customer
+	err := s.db.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).First(&customer).Error
+	return customer, err
+}
+
+func (s *Store) GetCustomerByPortalKeyHash(ctx context.Context, hash string) (domain.Customer, error) {
+	var customer domain.Customer
+	err := s.db.WithContext(ctx).Where("portal_key_hash = ?", strings.TrimSpace(hash)).First(&customer).Error
+	return customer, err
+}
+
+func (s *Store) GetCustomerByEmail(ctx context.Context, email string) (domain.Customer, error) {
+	var customer domain.Customer
+	err := s.db.WithContext(ctx).
+		Where("lower(email) = ?", strings.ToLower(strings.TrimSpace(email))).
+		Order("created_at desc").
+		First(&customer).Error
+	return customer, err
+}
+
+func (s *Store) UpdateCustomer(ctx context.Context, id string, updates map[string]any) (domain.Customer, error) {
+	if len(updates) > 0 {
+		if err := s.db.WithContext(ctx).Model(&domain.Customer{}).Where("id = ?", strings.TrimSpace(id)).Updates(updates).Error; err != nil {
+			return domain.Customer{}, err
+		}
+	}
+	return s.GetCustomer(ctx, id)
+}
+
+func (s *Store) DeleteCustomer(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var customer domain.Customer
+		if err := tx.Where("id = ?", id).First(&customer).Error; err != nil {
+			return err
+		}
+		var keyIDs []string
+		if err := tx.Model(&domain.APIKey{}).Where("customer_id = ?", id).Pluck("id", &keyIDs).Error; err != nil {
+			return err
+		}
+		if len(keyIDs) > 0 {
+			if err := tx.Where("api_key_id in ?", keyIDs).Delete(&domain.ImageTask{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("api_key_id in ?", keyIDs).Delete(&domain.ImageBatch{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id in ?", keyIDs).Delete(&domain.APIKey{}).Error; err != nil {
+				return err
+			}
+		}
+		res := tx.Where("id = ?", id).Delete(&domain.Customer{})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+}
+
 func (s *Store) CreateAPIKey(ctx context.Context, key domain.APIKey) error {
 	return s.db.WithContext(ctx).Create(&key).Error
 }
@@ -48,9 +137,21 @@ func (s *Store) ListAPIKeys(ctx context.Context) ([]domain.APIKey, error) {
 	return keys, err
 }
 
+func (s *Store) ListAPIKeysByCustomer(ctx context.Context, customerID string) ([]domain.APIKey, error) {
+	var keys []domain.APIKey
+	err := s.db.WithContext(ctx).Where("customer_id = ?", strings.TrimSpace(customerID)).Order("created_at desc").Find(&keys).Error
+	return keys, err
+}
+
 func (s *Store) GetAPIKey(ctx context.Context, id string) (domain.APIKey, error) {
 	var key domain.APIKey
 	err := s.db.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).First(&key).Error
+	return key, err
+}
+
+func (s *Store) GetAPIKeyForCustomer(ctx context.Context, customerID, keyID string) (domain.APIKey, error) {
+	var key domain.APIKey
+	err := s.db.WithContext(ctx).Where("id = ? and customer_id = ?", strings.TrimSpace(keyID), strings.TrimSpace(customerID)).First(&key).Error
 	return key, err
 }
 
@@ -76,6 +177,154 @@ func (s *Store) UpdateAPIKey(ctx context.Context, id string, updates map[string]
 		}
 	}
 	return s.GetAPIKey(ctx, id)
+}
+
+func (s *Store) DeleteAPIKey(ctx context.Context, id string) error {
+	res := s.db.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).Delete(&domain.APIKey{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteAPIKeyForCustomer(ctx context.Context, customerID, keyID string) error {
+	res := s.db.WithContext(ctx).
+		Where("id = ? and customer_id = ?", strings.TrimSpace(keyID), strings.TrimSpace(customerID)).
+		Delete(&domain.APIKey{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (s *Store) GetSystemSetting(ctx context.Context, key string) (string, bool, error) {
+	var setting domain.SystemSetting
+	err := s.db.WithContext(ctx).Where("key = ?", strings.TrimSpace(key)).First(&setting).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return setting.Value, true, nil
+}
+
+func (s *Store) SetSystemSetting(ctx context.Context, key, value string) error {
+	setting := domain.SystemSetting{
+		Key:   strings.TrimSpace(key),
+		Value: strings.TrimSpace(value),
+	}
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&setting).Error
+}
+
+func (s *Store) UpsertLibraryAsset(ctx context.Context, asset domain.LibraryAsset) error {
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "legacy_asset_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"title",
+			"description",
+			"original_prompt",
+			"normalized_prompt",
+			"prompt_language",
+			"category",
+			"tags_json",
+			"status",
+			"source",
+			"source_url",
+			"storage_provider",
+			"storage_key",
+			"public_url",
+			"width",
+			"height",
+			"bytes",
+			"sha256",
+			"review_score",
+			"review_flags_json",
+			"review_summary",
+			"generation_model",
+			"requested_size",
+			"imported_at",
+			"updated_at",
+		}),
+	}).Create(&asset).Error
+}
+
+func (s *Store) GetLibraryAssetBySHA(ctx context.Context, sha string) (domain.LibraryAsset, error) {
+	var asset domain.LibraryAsset
+	err := s.db.WithContext(ctx).Where("sha256 = ?", strings.TrimSpace(sha)).First(&asset).Error
+	return asset, err
+}
+
+func (s *Store) GetLibraryAssetByLegacyID(ctx context.Context, legacyID string) (domain.LibraryAsset, error) {
+	var asset domain.LibraryAsset
+	err := s.db.WithContext(ctx).Where("legacy_asset_id = ?", strings.TrimSpace(legacyID)).First(&asset).Error
+	return asset, err
+}
+
+func (s *Store) ListLibraryAssets(ctx context.Context, filter LibraryAssetFilter) ([]domain.LibraryAsset, int64, error) {
+	status := strings.TrimSpace(filter.Status)
+	if status == "" {
+		status = domain.LibraryAssetPublished
+	}
+	q := s.db.WithContext(ctx).Model(&domain.LibraryAsset{}).Where("status = ?", status)
+	if category := strings.TrimSpace(filter.Category); category != "" && category != "all" {
+		q = q.Where("category = ?", category)
+	}
+	if query := strings.ToLower(strings.TrimSpace(filter.Query)); query != "" {
+		like := "%" + query + "%"
+		q = q.Where("lower(title) like ? or lower(original_prompt) like ? or lower(category) like ?", like, like, like)
+	}
+	if filter.Featured != nil {
+		q = q.Where("featured = ?", *filter.Featured)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	var assets []domain.LibraryAsset
+	err := q.Order("featured desc, review_score desc, created_at desc").Limit(limit).Offset(offset).Find(&assets).Error
+	return assets, total, err
+}
+
+func (s *Store) UpdateLibraryAssetFeatured(ctx context.Context, id string, featured bool) (domain.LibraryAsset, error) {
+	if err := s.db.WithContext(ctx).
+		Model(&domain.LibraryAsset{}).
+		Where("id = ?", strings.TrimSpace(id)).
+		Update("featured", featured).Error; err != nil {
+		return domain.LibraryAsset{}, err
+	}
+	var asset domain.LibraryAsset
+	err := s.db.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).First(&asset).Error
+	return asset, err
+}
+
+func (s *Store) LibraryAssetCategories(ctx context.Context) ([]CategoryCount, error) {
+	var rows []CategoryCount
+	err := s.db.WithContext(ctx).
+		Model(&domain.LibraryAsset{}).
+		Select("category, count(*) as count").
+		Where("status = ?", domain.LibraryAssetPublished).
+		Group("category").
+		Order("count desc").
+		Scan(&rows).Error
+	return rows, err
 }
 
 func (s *Store) CreateTaskWithQuota(ctx context.Context, keyID string, task domain.ImageTask, images, newTasks int) error {
@@ -151,6 +400,17 @@ func (s *Store) UpdateProviderAccount(ctx context.Context, id string, updates ma
 		}
 	}
 	return s.GetProviderAccount(ctx, id)
+}
+
+func (s *Store) DeleteProviderAccount(ctx context.Context, id string) error {
+	res := s.db.WithContext(ctx).Where("id = ?", strings.TrimSpace(id)).Delete(&domain.ProviderAccount{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (s *Store) ClaimQueuedTask(ctx context.Context) (domain.ImageTask, bool, error) {
@@ -343,15 +603,25 @@ func (s *Store) AdminOverview(ctx context.Context) (Overview, error) {
 	if err := s.db.WithContext(ctx).Model(&domain.APIKey{}).Count(&keyCount).Error; err != nil {
 		return Overview{}, err
 	}
+	var customerCount int64
+	if err := s.db.WithContext(ctx).Model(&domain.Customer{}).Count(&customerCount).Error; err != nil {
+		return Overview{}, err
+	}
 	var accountCount int64
 	if err := s.db.WithContext(ctx).Model(&domain.ProviderAccount{}).Count(&accountCount).Error; err != nil {
+		return Overview{}, err
+	}
+	var libraryAssetCount int64
+	if err := s.db.WithContext(ctx).Model(&domain.LibraryAsset{}).Where("status = ?", domain.LibraryAssetPublished).Count(&libraryAssetCount).Error; err != nil {
 		return Overview{}, err
 	}
 	return Overview{
 		TaskCounts:        counts,
 		TotalTasks:        total,
 		TotalOutputImages: outputImages,
+		Customers:         customerCount,
 		APIKeys:           keyCount,
+		LibraryAssets:     libraryAssetCount,
 		ProviderAccounts:  accountCount,
 	}, nil
 }

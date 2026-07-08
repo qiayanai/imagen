@@ -26,15 +26,39 @@ export type Overview = {
   task_counts: Record<string, number>;
   total_tasks: number;
   total_output_images: number;
+  customers: number;
   api_keys: number;
+  library_assets: number;
   provider_accounts: number;
   storage_provider: string;
   storage_ready: boolean;
   storage_public_url: string;
 };
 
+export type Customer = {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  portal_key_prefix: string;
+  default_image_limit_total: number;
+  default_image_limit_daily: number;
+  default_max_concurrency: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ClientSessionResponse = {
+  authenticated: boolean;
+  customer: Customer | null;
+  user: AdminUser | null;
+  login_url: string;
+  google_configured?: boolean;
+};
+
 export type APIKey = {
   id: string;
+  customer_id: string;
   name: string;
   key_prefix: string;
   status: string;
@@ -91,10 +115,47 @@ export type ImageTask = {
   duration_millis: number;
 };
 
+export type LibraryAsset = {
+  id: string;
+  legacy_asset_id: string;
+  title: string;
+  description: string;
+  original_prompt: string;
+  normalized_prompt: string;
+  prompt_language: string;
+  category: string;
+  tags: string[];
+  status: string;
+  source: string;
+  source_url: string;
+  storage_provider: string;
+  storage_key: string;
+  public_url: string;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+  review_score: number;
+  review_flags: string[];
+  review_summary: string;
+  featured: boolean;
+  generation_model: string;
+  requested_size: string;
+  imported_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LibraryCategory = {
+  category: string;
+  count: number;
+};
+
 export type Settings = {
   public_base_url: string;
   web_base_url: string;
   cors_allowed_origins: string[];
+  library_public_enabled: boolean;
   storage_provider: string;
   storage_dir: string;
   r2_account_id: string;
@@ -107,4 +168,8 @@ export type Settings = {
   google_redirect_url: string;
   admin_allowed_emails: string[];
   admin_allowed_domains: string[];
+};
+
+export type PublicSettings = {
+  library_public_enabled: boolean;
 };

@@ -46,8 +46,11 @@ func Open(databaseDSN, path string) (*gorm.DB, error) {
 
 func Migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		&domain.Customer{},
 		&domain.APIKey{},
 		&domain.ProviderAccount{},
+		&domain.LibraryAsset{},
+		&domain.SystemSetting{},
 		&domain.ImageTask{},
 		&domain.ImageBatch{},
 	)

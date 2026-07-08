@@ -22,7 +22,10 @@ import (
 	"imagen/backend/internal/storage"
 )
 
-const defaultProvider = "default"
+const (
+	defaultProvider                = "default"
+	settingLibraryPublicEnabledKey = "library_public_enabled"
+)
 
 var ErrNoProviderAccount = repository.ErrNoProviderAccount
 
@@ -40,6 +43,7 @@ type App struct {
 
 type CreateAPIKeyInput struct {
 	Name            string `json:"name"`
+	CustomerID      string `json:"customer_id"`
 	ImageLimitTotal int    `json:"image_limit_total"`
 	ImageLimitDaily int    `json:"image_limit_daily"`
 	MaxConcurrency  int    `json:"max_concurrency"`
@@ -51,6 +55,24 @@ type UpdateAPIKeyInput struct {
 	ImageLimitTotal *int    `json:"image_limit_total"`
 	ImageLimitDaily *int    `json:"image_limit_daily"`
 	MaxConcurrency  *int    `json:"max_concurrency"`
+}
+
+type CreateCustomerInput struct {
+	Name                   string `json:"name"`
+	Email                  string `json:"email"`
+	Status                 string `json:"status"`
+	DefaultImageLimitTotal int    `json:"default_image_limit_total"`
+	DefaultImageLimitDaily int    `json:"default_image_limit_daily"`
+	DefaultMaxConcurrency  int    `json:"default_max_concurrency"`
+}
+
+type UpdateCustomerInput struct {
+	Name                   *string `json:"name"`
+	Email                  *string `json:"email"`
+	Status                 *string `json:"status"`
+	DefaultImageLimitTotal *int    `json:"default_image_limit_total"`
+	DefaultImageLimitDaily *int    `json:"default_image_limit_daily"`
+	DefaultMaxConcurrency  *int    `json:"default_max_concurrency"`
 }
 
 type CreateProviderAccountInput struct {
@@ -115,11 +137,30 @@ type AdminOverview struct {
 	TaskCounts        map[string]int64
 	TotalTasks        int64
 	TotalOutputImages int64
+	Customers         int64
 	APIKeys           int64
+	LibraryAssets     int64
 	ProviderAccounts  int64
 	StorageProvider   string
 	StorageReady      bool
 	StoragePublicURL  string
+}
+
+type RuntimeSettings struct {
+	LibraryPublicEnabled bool `json:"library_public_enabled"`
+}
+
+type UpdateRuntimeSettingsInput struct {
+	LibraryPublicEnabled *bool `json:"library_public_enabled"`
+}
+
+type LibraryAssetFilter struct {
+	Status   string
+	Category string
+	Query    string
+	Featured *bool
+	Limit    int
+	Offset   int
 }
 
 func New(repo *repository.Store, cfg config.Config) (*App, error) {
@@ -154,6 +195,150 @@ func (a *App) EnsureDefaultProviderAccount(ctx context.Context) error {
 	return err
 }
 
+func (a *App) CreateCustomer(ctx context.Context, in CreateCustomerInput) (domain.Customer, string, error) {
+	plain, prefix, hash, err := generatePortalKey()
+	if err != nil {
+		return domain.Customer{}, "", err
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return domain.Customer{}, "", errors.New("customer name is required")
+	}
+	status := strings.TrimSpace(in.Status)
+	if status == "" {
+		status = domain.CustomerActive
+	}
+	if status != domain.CustomerActive && status != domain.CustomerDisabled {
+		return domain.Customer{}, "", errors.New("invalid customer status")
+	}
+	total := in.DefaultImageLimitTotal
+	if total == 0 {
+		total = a.Config.DefaultKeyImageCap
+	}
+	if total < -1 {
+		total = -1
+	}
+	daily := in.DefaultImageLimitDaily
+	if daily < 0 {
+		daily = 0
+	}
+	concurrency := in.DefaultMaxConcurrency
+	if concurrency < 0 {
+		concurrency = 0
+	}
+	customer := domain.Customer{
+		ID:                     "cus_" + uuid.NewString(),
+		Name:                   name,
+		Email:                  strings.TrimSpace(in.Email),
+		Status:                 status,
+		PortalKeyPrefix:        prefix,
+		PortalKeyHash:          hash,
+		DefaultImageLimitTotal: total,
+		DefaultImageLimitDaily: daily,
+		DefaultMaxConcurrency:  concurrency,
+	}
+	return customer, plain, a.Repo.CreateCustomer(ctx, customer)
+}
+
+func (a *App) ListCustomers(ctx context.Context) ([]domain.Customer, error) {
+	return a.Repo.ListCustomers(ctx)
+}
+
+func (a *App) UpdateCustomer(ctx context.Context, id string, in UpdateCustomerInput) (domain.Customer, error) {
+	updates := map[string]any{}
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			return domain.Customer{}, errors.New("customer name is required")
+		}
+		updates["name"] = name
+	}
+	if in.Email != nil {
+		updates["email"] = strings.TrimSpace(*in.Email)
+	}
+	if in.Status != nil {
+		status := strings.TrimSpace(*in.Status)
+		if status != domain.CustomerActive && status != domain.CustomerDisabled {
+			return domain.Customer{}, errors.New("invalid customer status")
+		}
+		updates["status"] = status
+	}
+	if in.DefaultImageLimitTotal != nil {
+		total := *in.DefaultImageLimitTotal
+		if total < -1 {
+			total = -1
+		}
+		updates["default_image_limit_total"] = total
+	}
+	if in.DefaultImageLimitDaily != nil {
+		daily := *in.DefaultImageLimitDaily
+		if daily < 0 {
+			daily = 0
+		}
+		updates["default_image_limit_daily"] = daily
+	}
+	if in.DefaultMaxConcurrency != nil {
+		concurrency := *in.DefaultMaxConcurrency
+		if concurrency < 0 {
+			concurrency = 0
+		}
+		updates["default_max_concurrency"] = concurrency
+	}
+	return a.Repo.UpdateCustomer(ctx, id, updates)
+}
+
+func (a *App) DeleteCustomer(ctx context.Context, id string) error {
+	return a.Repo.DeleteCustomer(ctx, id)
+}
+
+func (a *App) AuthenticateCustomer(ctx context.Context, raw string) (domain.Customer, error) {
+	hash := hashToken(raw)
+	if hash == "" {
+		return domain.Customer{}, errors.New("dashboard token is required")
+	}
+	customer, err := a.Repo.GetCustomerByPortalKeyHash(ctx, hash)
+	if err != nil {
+		return domain.Customer{}, errors.New("invalid dashboard token")
+	}
+	if customer.Status != domain.CustomerActive {
+		return domain.Customer{}, errors.New("customer is disabled")
+	}
+	return customer, nil
+}
+
+func (a *App) GetOrCreateCustomerForGoogle(ctx context.Context, email, name string) (domain.Customer, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return domain.Customer{}, errors.New("customer email is required")
+	}
+	customer, err := a.Repo.GetCustomerByEmail(ctx, email)
+	if err == nil {
+		if customer.Status != domain.CustomerActive {
+			return domain.Customer{}, errors.New("customer is disabled")
+		}
+		return customer, nil
+	}
+	if !IsNotFound(err) {
+		return domain.Customer{}, err
+	}
+	displayName := strings.TrimSpace(name)
+	if displayName == "" {
+		displayName = strings.TrimSpace(strings.Split(email, "@")[0])
+	}
+	if displayName == "" {
+		displayName = email
+	}
+	customer, _, err = a.CreateCustomer(ctx, CreateCustomerInput{
+		Name:                   displayName,
+		Email:                  email,
+		Status:                 domain.CustomerActive,
+		DefaultImageLimitTotal: a.Config.DefaultKeyImageCap,
+		DefaultImageLimitDaily: 0,
+		DefaultMaxConcurrency:  0,
+	})
+	return customer, err
+}
+
 func (a *App) CreateAPIKey(ctx context.Context, in CreateAPIKeyInput) (domain.APIKey, string, error) {
 	plain, prefix, hash, err := generateAPIKey()
 	if err != nil {
@@ -176,6 +361,7 @@ func (a *App) CreateAPIKey(ctx context.Context, in CreateAPIKeyInput) (domain.AP
 	}
 	key := domain.APIKey{
 		ID:              "key_" + uuid.NewString(),
+		CustomerID:      strings.TrimSpace(in.CustomerID),
 		Name:            strings.TrimSpace(in.Name),
 		KeyPrefix:       prefix,
 		KeyHash:         hash,
@@ -188,8 +374,30 @@ func (a *App) CreateAPIKey(ctx context.Context, in CreateAPIKeyInput) (domain.AP
 	return key, plain, a.Repo.CreateAPIKey(ctx, key)
 }
 
+func (a *App) CreateCustomerAPIKey(ctx context.Context, customer domain.Customer, name string) (domain.APIKey, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return domain.APIKey{}, "", errors.New("api key name is required")
+	}
+	return a.CreateAPIKey(ctx, CreateAPIKeyInput{
+		Name:            name,
+		CustomerID:      customer.ID,
+		ImageLimitTotal: customer.DefaultImageLimitTotal,
+		ImageLimitDaily: customer.DefaultImageLimitDaily,
+		MaxConcurrency:  customer.DefaultMaxConcurrency,
+	})
+}
+
 func (a *App) ListAPIKeys(ctx context.Context) ([]domain.APIKey, error) {
 	return a.Repo.ListAPIKeys(ctx)
+}
+
+func (a *App) ListCustomerAPIKeys(ctx context.Context, customerID string) ([]domain.APIKey, error) {
+	return a.Repo.ListAPIKeysByCustomer(ctx, customerID)
+}
+
+func (a *App) GetCustomerAPIKey(ctx context.Context, customerID, keyID string) (domain.APIKey, error) {
+	return a.Repo.GetAPIKeyForCustomer(ctx, customerID, keyID)
 }
 
 func (a *App) UpdateAPIKey(ctx context.Context, id string, in UpdateAPIKeyInput) (domain.APIKey, error) {
@@ -214,6 +422,32 @@ func (a *App) UpdateAPIKey(ctx context.Context, id string, in UpdateAPIKeyInput)
 		updates["max_concurrency"] = *in.MaxConcurrency
 	}
 	return a.Repo.UpdateAPIKey(ctx, id, updates)
+}
+
+func (a *App) UpdateCustomerAPIKey(ctx context.Context, customerID, keyID string, in UpdateAPIKeyInput) (domain.APIKey, error) {
+	if _, err := a.Repo.GetAPIKeyForCustomer(ctx, customerID, keyID); err != nil {
+		return domain.APIKey{}, err
+	}
+	updates := map[string]any{}
+	if in.Name != nil {
+		updates["name"] = strings.TrimSpace(*in.Name)
+	}
+	if in.Status != nil {
+		status := strings.TrimSpace(*in.Status)
+		if status != domain.APIKeyActive && status != domain.APIKeyDisabled {
+			return domain.APIKey{}, errors.New("invalid api key status")
+		}
+		updates["status"] = status
+	}
+	return a.Repo.UpdateAPIKey(ctx, keyID, updates)
+}
+
+func (a *App) DeleteAPIKey(ctx context.Context, id string) error {
+	return a.Repo.DeleteAPIKey(ctx, id)
+}
+
+func (a *App) DeleteCustomerAPIKey(ctx context.Context, customerID, keyID string) error {
+	return a.Repo.DeleteAPIKeyForCustomer(ctx, customerID, keyID)
 }
 
 func (a *App) AuthenticateAPIKey(ctx context.Context, raw string) (domain.APIKey, error) {
@@ -433,6 +667,10 @@ func (a *App) UpdateProviderAccount(ctx context.Context, id string, in UpdatePro
 	return a.Repo.UpdateProviderAccount(ctx, id, updates)
 }
 
+func (a *App) DeleteProviderAccount(ctx context.Context, id string) error {
+	return a.Repo.DeleteProviderAccount(ctx, id)
+}
+
 func (a *App) ClaimQueuedTask(ctx context.Context) (domain.ImageTask, bool, error) {
 	return a.Repo.ClaimQueuedTask(ctx)
 }
@@ -498,6 +736,57 @@ func (a *App) AdminListTasks(ctx context.Context, status string, limit, offset i
 	return a.Repo.AdminListTasks(ctx, status, limit, offset)
 }
 
+func (a *App) UpsertLibraryAsset(ctx context.Context, asset domain.LibraryAsset) error {
+	if strings.TrimSpace(asset.ID) == "" {
+		asset.ID = "lib_" + uuid.NewString()
+	}
+	if strings.TrimSpace(asset.Status) == "" {
+		asset.Status = domain.LibraryAssetPublished
+	}
+	return a.Repo.UpsertLibraryAsset(ctx, asset)
+}
+
+func (a *App) ListLibraryAssets(ctx context.Context, filter LibraryAssetFilter) ([]domain.LibraryAsset, int64, error) {
+	if strings.TrimSpace(filter.Status) == "" {
+		filter.Status = domain.LibraryAssetPublished
+	}
+	return a.Repo.ListLibraryAssets(ctx, repository.LibraryAssetFilter{
+		Status:   filter.Status,
+		Category: filter.Category,
+		Query:    filter.Query,
+		Featured: filter.Featured,
+		Limit:    filter.Limit,
+		Offset:   filter.Offset,
+	})
+}
+
+func (a *App) UpdateLibraryAssetFeatured(ctx context.Context, id string, featured bool) (domain.LibraryAsset, error) {
+	return a.Repo.UpdateLibraryAssetFeatured(ctx, id, featured)
+}
+
+func (a *App) LibraryAssetCategories(ctx context.Context) ([]repository.CategoryCount, error) {
+	return a.Repo.LibraryAssetCategories(ctx)
+}
+
+func (a *App) RuntimeSettings(ctx context.Context) (RuntimeSettings, error) {
+	value, ok, err := a.Repo.GetSystemSetting(ctx, settingLibraryPublicEnabledKey)
+	if err != nil {
+		return RuntimeSettings{}, err
+	}
+	return RuntimeSettings{
+		LibraryPublicEnabled: boolSetting(value, true, ok),
+	}, nil
+}
+
+func (a *App) UpdateRuntimeSettings(ctx context.Context, in UpdateRuntimeSettingsInput) (RuntimeSettings, error) {
+	if in.LibraryPublicEnabled != nil {
+		if err := a.Repo.SetSystemSetting(ctx, settingLibraryPublicEnabledKey, formatBoolSetting(*in.LibraryPublicEnabled)); err != nil {
+			return RuntimeSettings{}, err
+		}
+	}
+	return a.RuntimeSettings(ctx)
+}
+
 func (a *App) AdminOverview(ctx context.Context) (AdminOverview, error) {
 	overview, err := a.Repo.AdminOverview(ctx)
 	if err != nil {
@@ -518,7 +807,9 @@ func (a *App) AdminOverview(ctx context.Context) (AdminOverview, error) {
 		TaskCounts:        overview.TaskCounts,
 		TotalTasks:        overview.TotalTasks,
 		TotalOutputImages: overview.TotalOutputImages,
+		Customers:         overview.Customers,
 		APIKeys:           overview.APIKeys,
+		LibraryAssets:     overview.LibraryAssets,
 		ProviderAccounts:  overview.ProviderAccounts,
 		StorageProvider:   a.Config.StorageProvider,
 		StorageReady:      storageReady,
@@ -648,20 +939,32 @@ func quotaSnapshot(key domain.APIKey) QuotaSnapshot {
 }
 
 func generateAPIKey() (plain, prefix, hash string, err error) {
+	return generateToken("sk_img_")
+}
+
+func generatePortalKey() (plain, prefix, hash string, err error) {
+	return generateToken("cus_portal_")
+}
+
+func generateToken(prefixValue string) (plain, prefix, hash string, err error) {
 	buf := make([]byte, 32)
 	if _, err = rand.Read(buf); err != nil {
 		return "", "", "", err
 	}
-	plain = "sk_img_" + base64.RawURLEncoding.EncodeToString(buf)
+	plain = prefixValue + base64.RawURLEncoding.EncodeToString(buf)
 	prefix = plain
 	if len(prefix) > 18 {
 		prefix = prefix[:18]
 	}
-	hash = hashAPIKey(plain)
+	hash = hashToken(plain)
 	return plain, prefix, hash, nil
 }
 
 func hashAPIKey(raw string) string {
+	return hashToken(raw)
+}
+
+func hashToken(raw string) string {
 	raw = strings.TrimSpace(strings.TrimPrefix(raw, "Bearer "))
 	if raw == "" {
 		return ""
@@ -685,6 +988,27 @@ func timeoutForCount(base time.Duration, imageCount int) time.Duration {
 		return 90 * time.Minute
 	}
 	return timeout
+}
+
+func boolSetting(value string, fallback bool, exists bool) bool {
+	if !exists {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	case "0", "false", "no", "off", "disabled":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func formatBoolSetting(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func utcDay(t time.Time) string {

@@ -28,6 +28,7 @@ type StoredObject struct {
 
 type Store interface {
 	SaveGenerated(ctx context.Context, sourcePath, taskID string, index int) (StoredObject, error)
+	SaveLibrary(ctx context.Context, sourcePath, key string) (StoredObject, error)
 	Provider() string
 }
 
@@ -101,6 +102,38 @@ func (s *Local) SaveGenerated(ctx context.Context, sourcePath, taskID string, in
 		Provider: "local",
 		Key:      key,
 		URL:      s.publicURL + "/files/" + escapePath(key),
+		Path:     targetPath,
+		Bytes:    info.Size(),
+	}, nil
+}
+
+func (s *Local) SaveLibrary(ctx context.Context, sourcePath, key string) (StoredObject, error) {
+	_ = ctx
+	sourceAbs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return StoredObject{}, err
+	}
+	info, err := os.Stat(sourceAbs)
+	if err != nil {
+		return StoredObject{}, err
+	}
+	cleanKey, err := cleanObjectKey(key)
+	if err != nil {
+		return StoredObject{}, err
+	}
+	targetPath := filepath.Join(s.root, cleanKey)
+	if !isInside(s.root, sourceAbs) || sourceAbs != targetPath {
+		if err := copyFile(targetPath, sourceAbs); err != nil {
+			return StoredObject{}, err
+		}
+		if copiedInfo, err := os.Stat(targetPath); err == nil {
+			info = copiedInfo
+		}
+	}
+	return StoredObject{
+		Provider: "local",
+		Key:      cleanKey,
+		URL:      s.publicURL + "/files/" + escapePath(cleanKey),
 		Path:     targetPath,
 		Bytes:    info.Size(),
 	}, nil
@@ -206,6 +239,47 @@ func (s *R2) SaveGenerated(ctx context.Context, sourcePath, taskID string, index
 	}, nil
 }
 
+func (s *R2) SaveLibrary(ctx context.Context, sourcePath, key string) (StoredObject, error) {
+	cleanKey, err := cleanObjectKey(key)
+	if err != nil {
+		return StoredObject{}, err
+	}
+	fullKey := strings.Trim(strings.Join([]string{s.keyPrefix, cleanKey}, "/"), "/")
+	return s.putFile(ctx, sourcePath, fullKey)
+}
+
+func (s *R2) putFile(ctx context.Context, sourcePath, key string) (StoredObject, error) {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return StoredObject{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return StoredObject{}, err
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(key)))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		Body:        file,
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return StoredObject{}, fmt.Errorf("upload to r2: %w", err)
+	}
+	return StoredObject{
+		Provider: "r2",
+		Key:      key,
+		URL:      s.publicBaseURL + "/" + escapePath(key),
+		Path:     sourcePath,
+		Bytes:    info.Size(),
+	}, nil
+}
+
 func isInside(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != "." && !strings.HasPrefix(rel, "..")
@@ -246,6 +320,19 @@ func copyFile(targetPath, sourcePath string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func cleanObjectKey(key string) (string, error) {
+	key = filepath.ToSlash(strings.TrimSpace(strings.TrimPrefix(key, "/")))
+	key = strings.Trim(key, "/")
+	if key == "" {
+		return "", errors.New("object key is required")
+	}
+	clean := filepath.ToSlash(filepath.Clean(key))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "/../") {
+		return "", errors.New("invalid object key")
+	}
+	return clean, nil
 }
 
 func escapePath(path string) string {

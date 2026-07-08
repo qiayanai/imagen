@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Imagen",
-  description: "面向团队的批量生图控制台。",
+  title: "Imagen - AI Image Generation Credits and API",
+  description: "AI image generation credits, hosted results, and API workflows for creators and teams.",
 };
 
 export default function RootLayout({
@@ -12,7 +12,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" className="dark h-full antialiased">
+    <html lang="en" className="dark h-full antialiased">
       <body className="min-h-full font-sans">{children}</body>
     </html>
   );

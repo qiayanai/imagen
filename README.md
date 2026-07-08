@@ -5,7 +5,7 @@ Imagen 是一个前后端分离的批量生图服务。前端可以部署到 Clo
 ## 目录结构
 
 - `backend`: Go API 服务，负责 API 密钥、额度、任务队列、引擎账号、图片生成和存储。
-- `web`: Next.js 静态前端，包含客户端页面和管理后台，视觉风格参考 KageOS Hub。
+- `web`: Next.js 静态前端，包含客户端页面和管理后台，视觉风格参考 Kageos Hub。
 - `deploy`: 后端生产部署脚本和 Podman compose 配置。
 - `deploy/backend`: 旧版 systemd / Nginx 参考配置。
 
