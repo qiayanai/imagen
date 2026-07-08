@@ -261,7 +261,7 @@ export const siteCopy = {
           {
             title: "2. Non-refundable cases",
             body: [
-              "Consumed credits are not refundable. Credits used for failed generation attempts may be reviewed case by case when the failure was caused by service-side errors.",
+              "Consumed credits are not refundable. Failed generation tasks do not consume credits, and partial outputs consume only the images that were successfully delivered.",
               "Purchases connected to abuse, policy violations, prohibited content, chargeback fraud, account compromise caused by user negligence, or attempts to bypass safety controls are not refundable.",
             ],
           },
@@ -515,7 +515,7 @@ export const siteCopy = {
           {
             title: "2. 不支持退款的情况",
             body: [
-              "已消耗点数不支持退款。若生成失败由服务端错误导致，可按个案审核。",
+              "已消耗点数不支持退款。生成失败的任务不消耗点数；部分成功的任务只按实际交付图片数消耗点数。",
               "与滥用、政策违规、禁止内容、拒付欺诈、用户疏忽导致的账户泄露或绕过安全控制相关的购买不支持退款。",
             ],
           },

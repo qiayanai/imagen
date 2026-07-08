@@ -536,12 +536,31 @@ func selectWeightedProviderAccount(accounts []domain.ProviderAccount, images int
 	return eligible[len(eligible)-1], true, nil
 }
 
-func (s *Store) ReleaseProviderAccount(ctx context.Context, id, errText string) error {
+func (s *Store) ReleaseProviderAccount(ctx context.Context, id string, reservedImages, billableImages int, reserveDay, errText string) error {
 	if strings.TrimSpace(id) == "" {
 		return nil
 	}
+	if reservedImages < 0 {
+		reservedImages = 0
+	}
+	if billableImages < 0 {
+		billableImages = 0
+	}
+	if billableImages > reservedImages {
+		billableImages = reservedImages
+	}
 	updates := map[string]any{
 		"running_count": gorm.Expr("case when running_count > 0 then running_count - 1 else 0 end"),
+	}
+	refund := reservedImages - billableImages
+	if refund > 0 && strings.TrimSpace(reserveDay) != "" {
+		updates["daily_image_used"] = gorm.Expr(
+			"case when running_count > 0 and current_day = ? and daily_image_used >= ? then daily_image_used - ? when running_count > 0 and current_day = ? then 0 else daily_image_used end",
+			reserveDay,
+			refund,
+			refund,
+			reserveDay,
+		)
 	}
 	if strings.TrimSpace(errText) != "" {
 		updates["last_error"] = tailString(errText, 2000)
@@ -555,14 +574,69 @@ func (s *Store) ReleaseProviderAccount(ctx context.Context, id, errText string) 
 
 func (s *Store) FinishTask(ctx context.Context, task domain.ImageTask, updates map[string]any) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&domain.ImageTask{}).Where("id = ?", task.ID).Updates(updates).Error; err != nil {
+		var current domain.ImageTask
+		q := tx.Where("id = ?", task.ID)
+		if tx.Dialector.Name() == "postgres" {
+			q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		if err := q.First(&current).Error; err != nil {
 			return err
 		}
-		if task.BatchID != "" {
-			return refreshBatchStatus(tx, task.BatchID)
+		if isTerminalTaskStatus(current.Status) {
+			return nil
+		}
+		if err := tx.Model(&domain.ImageTask{}).Where("id = ?", current.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+		status, _ := updates["status"].(string)
+		outputCount, _ := updates["output_image_count"].(int)
+		if err := settleReservedQuota(tx, current, status, outputCount); err != nil {
+			return err
+		}
+		if current.BatchID != "" {
+			return refreshBatchStatus(tx, current.BatchID)
 		}
 		return nil
 	})
+}
+
+func isTerminalTaskStatus(status string) bool {
+	return status == domain.TaskSucceeded || status == domain.TaskFailed || status == domain.TaskCanceled
+}
+
+func settleReservedQuota(tx *gorm.DB, task domain.ImageTask, status string, outputCount int) error {
+	reserved := task.ImageCount
+	if reserved <= 0 {
+		return nil
+	}
+	billable := outputCount
+	if status != domain.TaskSucceeded {
+		billable = 0
+	}
+	if billable < 0 {
+		billable = 0
+	}
+	if billable > reserved {
+		billable = reserved
+	}
+	refund := reserved - billable
+	if refund <= 0 {
+		return nil
+	}
+	taskDay := utcDay(task.QueuedAt)
+	updates := map[string]any{
+		"image_used_total": gorm.Expr("case when image_used_total >= ? then image_used_total - ? else 0 end", refund, refund),
+	}
+	if taskDay != "" {
+		updates["image_used_daily"] = gorm.Expr(
+			"case when current_day = ? and image_used_daily >= ? then image_used_daily - ? when current_day = ? then 0 else image_used_daily end",
+			taskDay,
+			refund,
+			refund,
+			taskDay,
+		)
+	}
+	return tx.Model(&domain.APIKey{}).Where("id = ?", task.APIKeyID).Updates(updates).Error
 }
 
 func (s *Store) RequeueTask(ctx context.Context, taskID, errText string) error {

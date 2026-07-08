@@ -325,6 +325,16 @@ const copy: Record<Locale, ClientCopy> = {
   },
 };
 
+const imageSizeOptions: Array<{ value: string; label: Record<Locale, string> }> = [
+  { value: "1024x1024", label: { en: "Square 1:1 - 1024x1024", zh: "方图 1:1 - 1024x1024" } },
+  { value: "1536x1024", label: { en: "Landscape 3:2 - 1536x1024", zh: "横图 3:2 - 1536x1024" } },
+  { value: "1024x1536", label: { en: "Portrait 2:3 - 1024x1536", zh: "竖图 2:3 - 1024x1536" } },
+  { value: "1024x1280", label: { en: "Portrait 4:5 - 1024x1280", zh: "竖图 4:5 - 1024x1280" } },
+  { value: "1280x1024", label: { en: "Landscape 5:4 - 1280x1024", zh: "横图 5:4 - 1280x1024" } },
+  { value: "1920x1080", label: { en: "Wide 16:9 - 1920x1080", zh: "宽屏 16:9 - 1920x1080" } },
+  { value: "1080x1920", label: { en: "Vertical 9:16 - 1080x1920", zh: "竖屏 9:16 - 1080x1920" } },
+];
+
 const navItems: Array<{ id: ClientView; icon: ComponentType<{ className?: string }> }> = [
   { id: "tasks", icon: LayoutList },
   { id: "library", icon: ImageIcon },
@@ -816,7 +826,17 @@ export function ClientConsole() {
             </label>
             <label>
               <span className="mb-1.5 block text-xs font-medium text-surface-500">{t.size}</span>
-              <Input value={size} onChange={(event) => setSize(event.target.value)} />
+              <select
+                value={size}
+                onChange={(event) => setSize(event.target.value)}
+                className="h-10 w-full rounded-lg border border-white/10 bg-surface-950/70 px-3 text-sm text-white outline-none"
+              >
+                {imageSizeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label[locale]}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               <span className="mb-1.5 block text-xs font-medium text-surface-500">{t.quality}</span>

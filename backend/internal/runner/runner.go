@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -181,6 +182,7 @@ func buildPrompt(opts execOptions) string {
 	if opts.ImageCount > 1 {
 		countLine = fmt.Sprintf("Generate %d clearly different images and save every image.", opts.ImageCount)
 	}
+	sizeRequirement := generationSizeRequirement(opts.Options.Size)
 	params := generationParamLines(opts.Options)
 	if params != "" {
 		params = "\n\nGeneration parameters:\n" + params
@@ -188,6 +190,7 @@ func buildPrompt(opts execOptions) string {
 	return strings.TrimSpace(opts.Prompt) + params + `
 
 ` + countLine + `
+` + sizeRequirement + `
 
 Use the available image generation capability. Save every generated image into this directory:
 ` + opts.OutputDir + `
@@ -203,6 +206,30 @@ Rules:
 2. Do not put Markdown, URLs, or explanations inside the <images> tag.
 3. If an image is first written as a relative path, convert it to an absolute path.
 4. Do not write outside the requested output directory and do not overwrite existing files.`
+}
+
+func generationSizeRequirement(size string) string {
+	size = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(size), " ", ""))
+	if size == "" {
+		return ""
+	}
+	orientation := "square"
+	parts := strings.Split(size, "x")
+	if len(parts) == 2 {
+		width, widthErr := strconv.Atoi(parts[0])
+		height, heightErr := strconv.Atoi(parts[1])
+		if widthErr == nil && heightErr == nil && width > height {
+			orientation = "landscape"
+		} else if widthErr == nil && heightErr == nil && width < height {
+			orientation = "portrait"
+		}
+	}
+	return fmt.Sprintf(`
+Canvas requirement:
+- The final image canvas MUST be %s pixels (%s orientation).
+- Preserve this exact width and height when invoking image generation or post-processing the result.
+- Do not substitute a square canvas when a portrait or landscape size is requested.
+`, size, orientation)
 }
 
 func generationParamLines(opts GenerationOptions) string {

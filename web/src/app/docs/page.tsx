@@ -128,7 +128,13 @@ export default function DocsPage() {
   const requestRows = [
     ["prompt", "string", isZH ? "必填。图片生成提示词。" : "Required. The image generation prompt."],
     ["image_count", "number", isZH ? "可选，默认 1。一次任务生成几张图。" : "Optional, defaults to 1. Number of images to generate."],
-    ["size", "string", isZH ? "可选，例如 1024x1024。" : "Optional, for example 1024x1024."],
+    [
+      "size",
+      "string",
+      isZH
+        ? "可选，WIDTHxHEIGHT 像素格式，例如 1024x1024、1536x1024、1024x1536。"
+        : "Optional WIDTHxHEIGHT pixel size, for example 1024x1024, 1536x1024, or 1024x1536.",
+    ],
     ["quality", "string", isZH ? "可选：low、medium、high。" : "Optional: low, medium, high."],
     ["output_format", "string", isZH ? "可选，通常用 png。" : "Optional, usually png."],
   ];

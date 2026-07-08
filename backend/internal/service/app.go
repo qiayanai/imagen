@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ import (
 
 const (
 	defaultProvider                = "default"
+	defaultImageSize               = "1024x1024"
+	minImageDimension              = 256
+	maxImageDimension              = 4096
 	settingLibraryPublicEnabledKey = "library_public_enabled"
 )
 
@@ -708,8 +712,9 @@ func (a *App) RunTask(ctx context.Context, task domain.ImageTask) error {
 		return err
 	}
 	releaseError := ""
+	billableImages := task.ImageCount
 	defer func() {
-		_ = a.Repo.ReleaseProviderAccount(context.Background(), account.ID, releaseError)
+		_ = a.Repo.ReleaseProviderAccount(context.Background(), account.ID, task.ImageCount, billableImages, account.CurrentDay, releaseError)
 	}()
 
 	start := time.Now()
@@ -752,6 +757,7 @@ func (a *App) RunTask(ctx context.Context, task domain.ImageTask) error {
 		status = domain.TaskFailed
 		errText = "generation completed without image output"
 	}
+	billableImages = billableImageCount(status, task.ImageCount, len(urls))
 	return a.finishTask(context.Background(), task, status, urls, paths, result, time.Since(start), errText)
 }
 
@@ -860,6 +866,19 @@ func (a *App) finishTask(ctx context.Context, task domain.ImageTask, status stri
 	return a.Repo.FinishTask(ctx, task, updates)
 }
 
+func billableImageCount(status string, requested, output int) int {
+	if status != domain.TaskSucceeded {
+		return 0
+	}
+	if output < 0 {
+		return 0
+	}
+	if requested > 0 && output > requested {
+		return requested
+	}
+	return output
+}
+
 func (a *App) normalizeTaskInput(in CreateTaskInput) (CreateTaskInput, error) {
 	in.Prompt = strings.TrimSpace(in.Prompt)
 	if in.Prompt == "" {
@@ -875,10 +894,38 @@ func (a *App) normalizeTaskInput(in CreateTaskInput) (CreateTaskInput, error) {
 	if in.ImageCount > maxImages {
 		return in, fmt.Errorf("image_count exceeds max %d", maxImages)
 	}
+	size, err := normalizeImageSize(in.Size)
+	if err != nil {
+		return in, err
+	}
+	in.Size = size
 	if strings.TrimSpace(in.OutputFormat) == "" {
 		in.OutputFormat = "png"
 	}
 	return in, nil
+}
+
+func normalizeImageSize(value string) (string, error) {
+	size := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
+	if size == "" {
+		return defaultImageSize, nil
+	}
+	parts := strings.Split(size, "x")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid size %q: use WIDTHxHEIGHT, for example %s", value, defaultImageSize)
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("invalid size %q: width must be a number", value)
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("invalid size %q: height must be a number", value)
+	}
+	if width < minImageDimension || height < minImageDimension || width > maxImageDimension || height > maxImageDimension {
+		return "", fmt.Errorf("invalid size %q: width and height must be between %d and %d pixels", value, minImageDimension, maxImageDimension)
+	}
+	return fmt.Sprintf("%dx%d", width, height), nil
 }
 
 func applyBatchDefaults(item CreateTaskInput, batch CreateBatchInput) CreateTaskInput {
